@@ -27,7 +27,8 @@ with open("data_3w", "rb") as f:
     
 with open("data_m", "rb") as f:
     data_m = pickle.load(f)
-
+    
+#Remove Vienna from all data pieces because of malformed data
 for dat in [data_m, data_2w, data_3w, data_w]:
     del dat["Vienna"]
     
@@ -36,35 +37,44 @@ cities = list(data_m.keys())
 
 # A) V_T ~ V_{T-1}
 
-def baseline1(data, city, vec, n_test):
-    dat = data[city][vec].copy()
-    SE = (dat[-n_test:] - dat[-n_test:].shift(1) )**2
+def baseline1(data, city, cols, test_size):
+    dat = data[city][cols].copy()
+    y = dat[-test_size:]
+    #y_train = dat[:-test_size]
+    pred = dat[-test_size-1:].shift(1).dropna()
+    SE = (y - pred )**2
+    #AE = np.abs(pred - y)
+    #SE_naive = (y_train.mean() - y)**2
+    #AE_naive = np.abs((y_train.mean() - y))
+    #RRSE = np.sqrt((SE.sum()/SE_naive.sum()))
+    #RAE = AE.sum()/AE_naive.sum()
     RMSE = np.sqrt(SE.mean())
+    #NRMSE = RMSE/dat.std()
     res = RMSE.to_dict()
     res["MRMSE"] = RMSE.mean()
     res["city"] = city
     return res
 
-#baseline1_results = pd.DataFrame([baseline1(data_w, city,
-                                            # target_vector,
-                                            # test_size) for city in data])
-
-    
 
 # B) V_T ~ AVG(V_{T-2 : T-1})
         
-def baseline2(data, city, vec, n_test):
-    dat = data[city][vec].copy()
-    SE = (dat[-n_test:] - dat[-n_test:].shift(1).rolling(2).mean())**2
+def baseline2(data, city,cols, test_size):
+    dat = data[city][cols].copy()
+    y = dat[-test_size:]
+    #y_train = dat[:-test_size]
+    pred = dat[-test_size-2:].shift(1).rolling(2).mean().dropna()
+    SE = (y - pred )**2
+    #AE = np.abs(pred - y)
+    #SE_naive = (y_train.mean() - y)**2
+    #AE_naive = np.abs((y_train.mean() - y))
+    #RRSE = np.sqrt((SE.sum()/SE_naive.sum()))
+    #RAE = AE.sum()/AE_naive.sum()
     RMSE = np.sqrt(SE.mean())
+    #NRMSE = RMSE/dat.std()
     res = RMSE.to_dict()
     res["MRMSE"] = RMSE.mean()
     res["city"] = city
     return res
-
-#baseline2_results = pd.DataFrame([baseline2(city,
-                                            # target_vector,
-                                            # test_size) for city in data])
 
 def build_model(method, dat, max_lag, n_test,
             max_depth, lr, alpha, tolerance, temporal_features=True):
@@ -191,24 +201,14 @@ def compare_models(data, model_params, test_size):
 target_vector = ['create', 'modify','tag_add',
             'tag_del', 'tag_change','loc_change',
             'new_mapper']
-
-              
-model_params = {"VAR" : {"alpha" : [1, 5, 15, 20], "tolerance" : [.15], "max_lag" : list(range(1, 5)) },
-                "RF" :   {"max_depth" : [1, 10, 15, 20, None], "max_lag" : list(range(1, 5)) }
-                }
-
-model_results_m = compare_models(data_m, model_params, 12)
-model_results_3w = compare_models(data_3w, model_params, 16)
-model_results_2w = compare_models(data_2w, model_params, 24)
-model_results_w = compare_models(data_w, model_params, 48)
-
 ## Conditional Performance Metrics
 
 # The prediction error of a model depends on the following modeling conditions:
-    # Frequency : Time Horizon (w, 2w, 3w, 4w)
+    # Frequency : Time Horizon (1w, 2w, 3w, 4w)
     # City 
 
 
+# Performance vs Forecast Horizon
 # Performance vs Forecast Horizon
 def horizon_performance(city):
     return pd.DataFrame({"VAR" : [frequency[city].MRMSE.LVAR for frequency in [model_results_w, model_results_2w, model_results_3w, model_results_m]],
@@ -217,246 +217,37 @@ def horizon_performance(city):
               "BL2" : [frequency[city].MRMSE.BL2 for frequency in [model_results_w, model_results_2w, model_results_3w, model_results_m]]},
              index = ["1w", "2w", "3w", "4w"])
 
-
-# Example 
-horizon_performance("Paris").plot(style=".-")
-horizon_performance("Amsterdam").plot(style=".-")
-
-# Performance
-def city_performance(frequency, obj):
+def city_performance(frequency, obj, normalize=True):
+    obj_error = "RMSE(% s)" % obj
     if frequency == "w":
         model_results = model_results_w
+        data = data_w
     elif frequency == "2w":
         model_results = model_results_2w
+        data = data_2w
     elif frequency == "3w":
         model_results = model_results_3w
+        data = data_3w
     elif frequency == "4w":
         model_results = model_results_m
-        
+        data = data_m
+    if normalize:
+        return pd.DataFrame({"LVAR" : [(model_results[city][obj_error]/(data[city][obj].quantile(0.75) - data[city][obj].quantile(0.25))).LVAR for city in cities],
+                                     "RF" : [(model_results[city][obj_error]/(data[city][obj].quantile(0.75) - data[city][obj].quantile(0.25))).RF for city in cities],
+                                     "BL1"  : [(model_results[city][obj_error]/(data[city][obj].quantile(0.75) - data[city][obj].quantile(0.25))).BL1 for city in cities],
+                                     "BL2"  : [(model_results[city][obj_error]/(data[city][obj].quantile(0.75) - data[city][obj].quantile(0.25))).BL2 for city in cities]},index=cities)
+    else:
+        return pd.DataFrame({"LVAR" : [model_results[city][obj_error].LVAR for city in cities],
+                             "RF" : [model_results[city][obj_error].RF for city in cities],
+                             "BL1"  : [model_results[city][obj_error].BL1 for city in cities],
+                             "BL2"  : [model_results[city][obj_error].BL2 for city in cities]},index=cities)
+
+def compare_objective(model_results, obj):
     return pd.DataFrame({"LVAR" : [model_results[city][obj].LVAR for city in cities],
                                  "RF" : [model_results[city][obj].RF for city in cities],
                                  "BL1"  : [model_results[city][obj].BL1 for city in cities],
-                                 "BL2"  : [model_results[city][obj].BL2 for city in cities]},index=cities)
-
-# A look at the the models performances for weekly predictions
-performance_w = city_performance("w", "MRMSE")
-performance_w.plot.bar()
-performance_w.boxplot(showmeans=True)
-performance_w.describe()
-
-# A look at the the models performances for 2w predictions
-performance_2w = city_performance("2w", "MRMSE")
-performance_2w.plot.bar()
-performance_2w.boxplot(showmeans=True)
-performance_2w.describe()
-
-# A look at the the models performances for 3w predictions
-performance_3w = city_performance("3w", "MRMSE")
-performance_3w.plot.bar()
-performance_3w.boxplot(showmeans=True)
-performance_3w.describe()
-
-# A look at the the models performances for 4w predictions
-performance_4w = city_performance("4w", "MRMSE")
-performance_4w.plot.bar()
-performance_4w.boxplot(showmeans=True)
-performance_4w.describe()
-
-## Mean for all cities vs frequency
-def aggregated_RMSE(objective="MRMSE", how="mean"):
-    if how == "mean":
-        return pd.DataFrame([city_performance(freq, objective).mean() for freq in ["w", "2w", "3w", "4w"]], index=["w", "2w", "3w", "4w"])
-    elif how == "median":
-        return pd.DataFrame([city_performance(freq, objective).median() for freq in ["w", "2w", "3w", "4w"]], index=["w", "2w", "3w", "4w"])
-        
-# Mean of all cities for the models and their relation to the frequency
-aggregated_RMSE("MRMSE", "mean").plot(style=".-")
-# Median of all cities for the models and their relation to the frequency
-aggregated_RMSE("MRMSE", "median").plot(style=".-")
-
-# Mean RMSE for new mapper in t+1 of all cities for the models and their relation to the frequency
-aggregated_RMSE("RMSE(new_mapper)", "mean").plot(style=".-")
-aggregated_RMSE('RMSE(create)', "mean").plot(style=".-")
-aggregated_RMSE('RMSE(modify)', "mean").plot(style=".-")
-aggregated_RMSE('RMSE(tag_add)', "mean").plot(style=".-")
-aggregated_RMSE('RMSE(tag_del)', "mean").plot(style=".-")
-aggregated_RMSE('RMSE(loc_change)', "mean").plot(style=".-")
-
-# Action activity /in R
-# Modify Activity /in R
+                                 "BL2"  : [model_results[city][obj].BL2 for city in cities]},
+                                index=cities)
 
 
-
-
-## - - A) Monthly data experiment 
-
-# First, obtain the baseline results for monthly data
-# For each of the 20 cities, we use the last year (12M) to evaluate the performance in terms of RMSE
-
-# Naive Predictor (BL1)
-
-res_bl1_m = pd.DataFrame([baseline1(data_m, city,
-                                             target_vector,
-                                             test_size_m) for city in data_m])
-res_bl1_m.index = res_bl1_m.city
-res_bl1_m.MRMSE.plot.bar(grid=True);plt.title("MEAN % s" % res_bl1_m.MRMSE.mean())
-
-# MA(2) Predictor (BL2)
-
-res_bl2_m = pd.DataFrame([baseline2(data_m, city,
-                                             target_vector,
-                                             test_size_m) for city in data_m])
-res_bl2_m.index = res_bl2_m.city
-res_bl2_m.MRMSE.plot.bar(grid=True);plt.title("MEAN % s" % res_bl2_m.MRMSE.mean())
- 
-# Now for each of the model, search for an optimal set of parameters within a small set of possible params
-# We dont want to overly hardcode the parameters since we are not using CV
-res_var_m = best_fit("VAR", data_m, model_params["VAR"], test_size_m)
-res_rf_m = best_fit("RF", data_m, model_params["RF"], test_size_m)
-
-
-# Compare the performance of the models city wise
-
-model_results_m = {}
-df_rf = res_rf_m.copy()
-df_var = res_var_m.copy()
-for city in data_m:
-    d_var = df_var[df_var["city"] == city].loc[df_var[df_var["city"] == city].MRMSE.idxmin()].to_dict()
-    d_rf = df_rf[df_rf["city"] == city].loc[df_rf[df_rf["city"] == city].MRMSE.idxmin()].to_dict()
-    del d_rf["city"], d_var["city"]
-    
-    d_rf["Model"] = "RF"
-    d_var["Model"] = "LVAR"
-   
-    
-    dat_ = [d_var, d_rf]
-    
-    BL1 = res_bl1_m[res_bl1_m["city"] == city].to_dict()
-    BL2 = res_bl2_m[res_bl2_m["city"] == city].to_dict()
-    
-    dd = {"RMSE(%s)" % i : list(BL1[i].values())[0] for i in BL1 if i not in ["MRMSE", "city"]}
-    dd["Model"] = "BL1"
-    dd["MRMSE"] = list(BL1["MRMSE"].values())[0]
-    dat_.append(dd)
-    dd = {"RMSE(%s)" % i : list(BL2[i].values())[0] for i in BL2 if i not in ["MRMSE", "city"]}
-    dd["MRMSE"] = list(BL2["MRMSE"].values())[0]
-    dd["Model"] = "BL2"
-    dat_.append(dd)
-    
-    model_results_m[city] = pd.DataFrame(dat_)
-    model_results_m[city].index = model_results_m[city].Model
-
-# Analysis of RMSE
-metrics = ['MRMSE', 'RMSE(create)', 'RMSE(modify)',
-           'RMSE(tag_add)',
-           'RMSE(tag_del)', 'RMSE(tag_change)', 
-           'RMSE(loc_change)', 'RMSE(new_mapper)']
-
-for city in data_m:
-    model_results_m[city][metrics].plot(color=["black","green", "blue", "orange","yellow","purple", "red", "grey"], kind="bar", grid=True)
-    plt.title(city)
-    
-    
- 
-# Compare the MRMSE for the cities and their models
-
-                            
-
-compare_mrmse = compare_objective(model_results_m, "MRMSE")
-
-## - - B) 3w data experiment 
-
-
-
-## - - C) 2w data experiment 
-
-
-
-## - - D) 1w data experiment 
-
-
-
-
-
-
-
-    ## Analysis of RMSE
-    metrics = ['MRMSE', 'RMSE(create)', 'RMSE(modify)',
-               'RMSE(tag_add)',
-               'RMSE(tag_del)', 'RMSE(tag_change)', 
-               'RMSE(loc_change)', 'RMSE(new_mapper)']
-    
-    
-    
-    ## For each city, show performance of the 3 models
-    for city in data:
-        model_results[city][metrics].plot(color=["black","green", "blue", "orange","yellow","purple", "red", "grey"], kind="bar")
-        plt.title(city)
-        
-        
-    # Compare objectives  
-    ## Compare the MRMSE for the cities and their models
-    compare_mean = pd.DataFrame({"LVAR" : [model_results[city].MRMSE.LVAR for city in data],
-                                 "RF" : [model_results[city].MRMSE.RF for city in data],
-                                 "GB" : [model_results[city].MRMSE.GB for city in data],
-                                 "BL1"  : [model_results[city].MRMSE.BL1 for city in data],
-                                 "BL2"  : [model_results[city].MRMSE.BL2 for city in data]},
-                                index=list(data.keys()))
-                                
-    
-    
-    compare_mean.plot.bar();plt.ylabel("$RMSE_{\mu}$")
-    compare_mean.plot(kind="bar",grid=True);plt.ylabel("$RMSE_{\mu}$")
-    
-    ## For each city, show best params
-    lvar_params = pd.DataFrame([ df[df["city"] == city].loc[df[df["city"] == city].MRMSE.idxmin()].to_dict() for city in data ])
-    lvar_params.index = lvar_params.city;del lvar_params["city"]
-    #lvar_params = lvar_params.reindex(["Heidelberg", "Sao Paulo", "Rome", "Stockholm", "Sydney", "New York", "Berlin", "Global"])
-    
-    
-    # Best Models for each city and their parameters
-    lvar_params
-    
-    
-    # Compare single variable perofmrance
-    for col in metrics:
-        compare_col = pd.DataFrame({"LVAR" : [model_results[city][col].LVAR for city in data],
-                                    "RF" : [model_results[city].MRMSE.RF for city in data],
-                                     "BL1"  : [model_results[city][col].BL1 for city in data],
-                                     "BL2"  : [model_results[city][col].BL2 for city in data]},
-                                    index = data.keys())#.reindex(["Heidelberg", "Sao Paulo", "Rome", "Stockholm", "Sydney", "New York", "Berlin", "Global"])
-        
-        
-        compare_col.plot.bar(grid=True);plt.ylabel(col)
-                
-        
-        
-                
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-    
     
