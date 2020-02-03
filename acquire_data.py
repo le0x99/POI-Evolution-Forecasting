@@ -40,14 +40,15 @@ out skel qt;
     return elements
 
 
-cities = {"Heidelberg" : 3600285864, "Rome" : 3600041485, "Berlin" : 3600062422, "Sao Paulo" : 3600298285, "New York" : 3600175905, 
+cities = {"Heidelberg" : 3600285864, "Rome" : 3600041485,
+          "Berlin" : 3600062422, "Sao Paulo" : 3600298285,
+          "New York" : 3600175905, 
           "Sydney" : 3605750005, "Stockholm" : 3600398021, 
           "Amsterdam" : 3600271110, "Paris" : 3600007444,
            "Barcelona" : 3600347950,
           "London" : 3600065606, "Los Angeles" : 3600207359,
           "Oslo" : 3600406091, "Mexico City" : 3601376330,
           "Shanghai" : 3600913067,
-          "Vienna" : 3600109166,
           "Moscow" : 3602555133,
           "Montreal" : 3601634158,
           "Mumbai" : 3607888990,
