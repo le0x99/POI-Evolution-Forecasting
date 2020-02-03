@@ -28,9 +28,6 @@ with open("data_3w", "rb") as f:
 with open("data_m", "rb") as f:
     data_m = pickle.load(f)
     
-#Remove Vienna from all data pieces because of malformed data
-for dat in [data_m, data_2w, data_3w, data_w]:
-    del dat["Vienna"]
     
 cities = list(data_m.keys())
 ## The baseline Models
